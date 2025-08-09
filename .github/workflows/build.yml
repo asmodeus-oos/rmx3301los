@@ -94,27 +94,28 @@ runs:
           git checkout $(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
         fi
 
-    - name: Initialize Repo
+        - name: Initialize Repo
       shell: bash
       run: |
         cd "$CONFIG/kernel_platform"
         
         # Initialize minimal repo for dependencies only
         mkdir -p .repo/local_manifests
-        cat > .repo/local_manifests/skip-kernel.xml <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<manifest>
-  <remove-project name="kernel/msm-*" />
-  <remove-project name="kernel/common" />
-</manifest>
-EOF
         
+        # Create manifest file without XML declaration
+        echo '<manifest>' > .repo/local_manifests/skip-kernel.xml
+        echo '  <remove-project name="kernel/msm-*"/>' >> .repo/local_manifests/skip-kernel.xml
+        echo '  <remove-project name="kernel/common"/>' >> .repo/local_manifests/skip-kernel.xml
+        echo '</manifest>' >> .repo/local_manifests/skip-kernel.xml
+        
+        # Initialize repo with OnePlus manifest
         repo init -u https://github.com/OnePlusOSS/kernel_manifest.git \
           -b ${{ inputs.branch }} \
           -m ${{ inputs.manifest }} \
           --depth=1 \
           --no-clone-bundle
         
+        # Sync only dependencies (skip kernel projects)
         repo sync -c -j$(nproc --all) \
           --no-tags \
           --no-clone-bundle \
