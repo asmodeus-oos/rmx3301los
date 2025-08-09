@@ -113,10 +113,23 @@ jobs:
           
           # Initialize and sync kernel source from pjgowtham's repo
           echo "Initializing and syncing kernel source from pjgowtham/android_kernel_oneplus_sm8450..."
-          git clone https://github.com/pjgowtham/android_kernel_oneplus_sm8450.git kernel_platform -b ${{ inputs.branch }} --depth=1
+          git clone https://github.com/pjgowtham/android_kernel_oneplus_sm8450.git kernel_platform --depth=1
           
-          # Initialize repo in the kernel_platform directory for any additional dependencies
+          # Change to kernel directory
           cd kernel_platform
+          
+          # Check if the requested branch exists in the repo
+          if git show-ref --verify --quiet refs/remotes/origin/${{ inputs.branch }}; then
+            echo "Checking out specified branch: ${{ inputs.branch }}"
+            git checkout ${{ inputs.branch }}
+          else
+            echo "Warning: Branch ${{ inputs.branch }} not found, using default branch"
+            DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+            git checkout $DEFAULT_BRANCH
+            echo "CONFIG_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
+          fi
+          
+          # Initialize repo for any additional dependencies
           $REPO init -u https://github.com/OnePlusOSS/kernel_manifest.git -b ${{ inputs.branch }} -m ${{ inputs.manifest }} --repo-rev=v2.16 --depth=1 --no-clone-bundle --no-tags
           
           # Sync repo and apply patches
