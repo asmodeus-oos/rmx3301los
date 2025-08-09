@@ -105,13 +105,18 @@ jobs:
           git clone https://github.com/TheWildJames/kernel_patches.git
 
       - name: Initialize and Sync Kernel Source
+        shell: bash
         run: |
           echo "Creating folder for configuration: $CONFIG..."
           mkdir -p "$CONFIG"
           cd "$CONFIG"
           
-          # Initialize and sync kernel source
-          echo "Initializing and syncing kernel source..."
+          # Initialize and sync kernel source from pjgowtham's repo
+          echo "Initializing and syncing kernel source from pjgowtham/android_kernel_oneplus_sm8450..."
+          git clone https://github.com/pjgowtham/android_kernel_oneplus_sm8450.git kernel_platform -b ${{ inputs.branch }} --depth=1
+          
+          # Initialize repo in the kernel_platform directory for any additional dependencies
+          cd kernel_platform
           $REPO init -u https://github.com/OnePlusOSS/kernel_manifest.git -b ${{ inputs.branch }} -m ${{ inputs.manifest }} --repo-rev=v2.16 --depth=1 --no-clone-bundle --no-tags
           
           # Sync repo and apply patches
