@@ -17,9 +17,9 @@ on:
         required: true
         type: choice
         options:
-          - stable
-          - next
-        default: next
+          - non-gki
+          - main
+        default: main
       optimize_level:
         description: "Compiler optimization level"
         required: true
