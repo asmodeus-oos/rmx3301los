@@ -1,185 +1,31 @@
-name: Build and Release OnePlus Kernels
-
-permissions:
-  contents: write
-  actions: write
+name: Clone and Compress Repo
 
 on:
   workflow_dispatch:
-    inputs:
-      make_release:
-        description: 'Do you want to create a release?'
-        required: true
-        type: boolean
-        default: false
-      ksun_branch:
-        description: 'Choose KernelSU Next Branch'
-        required: true
-        type: choice
-        options:
-          - susfs-test
-          - main
-        default: main
-      optimize_level:
-        description: "Compiler optimization level"
-        required: true
-        type: choice
-        options:
-          - O2
-          - O3
-        default: O3
-      android12-5_10_susfs_branch_or_commit:
-        description: 'Enter SusFS Branch or commit hash for android12-5.10'
-        type: string
-        default: ''
 
 jobs:
+  clone-compress-upload:
+    runs-on: ubuntu-22.04
 
-  build-batch-3:
-    name: build-batch-3 ()
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - model: OP10pro
-            soc: waipio
-            branch: oneplus/sm8450
-            manifest: oneplus_10_pro_v.xml
-            android_version: android12
-            kernel_version: '5.10'
-    runs-on: ubuntu-latest
     steps:
-      - name: Select Appropriate SusFS Branch
-        id: get-susfs-branch
-        run: |
-          KERNEL_STRING="${{ matrix.android_version }}-${{ matrix.kernel_version }}"
-          SUSFS_BRANCH=""
-          case "$KERNEL_STRING" in
-            "android12-5.10")
-              SUSFS_BRANCH="${{ inputs.android12-5_10_susfs_branch_or_commit }}"
-              ;;
-            *)
-              echo "Invalid kernel version or unsupported: $KERNEL_STRING"
-              exit 1
-              ;;
-          esac
-          
-          echo "susfs_branch=$SUSFS_BRANCH" >> $GITHUB_OUTPUT
-
-      - name: Checkout Code
+      - name: Checkout workflow repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: Build Kernel
-        uses: ./.github/actions
-        with:
-          model: ${{ matrix.model }}
-          soc: ${{ matrix.soc }}
-          branch: ${{ matrix.branch }}
-          manifest: ${{ matrix.manifest }}
-          ksun_branch: ${{ inputs.ksun_branch }}
-          susfs_commit_hash_or_branch: ${{ steps.get-susfs-branch.outputs.susfs_branch }}
-          optimize_level: ${{ inputs.optimize_level }}
-
-  trigger-release:
-    needs:
-      - build-batch-3
-    runs-on: ubuntu-latest
-    if: ${{ inputs.make_release }}
-    env:
-      REPO_OWNER: ${{ github.repository_owner }}
-      REPO_NAME: ${{ github.event.repository.name }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_NAME: 'TEST BUILD OnePlus Kernels With KernelSU Next & SUSFS v1.5.9 TEST BUILD'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          
-      - name: Generate and Create New Tag
+      - name: Install dependencies
         run: |
-          BASE_TAG="v1.5.9-r0"
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name')
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG="$BASE_TAG"
-          else
-            LATEST_TAG=$(printf "%s\n%s\n" "$LATEST_TAG" "$BASE_TAG" | sort -rV | head -n1)
-          fi
-          NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-          echo "New tag: $NEW_TAG"
-          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
-          git tag $NEW_TAG
-          git push origin $NEW_TAG
+          sudo apt-get update
+          sudo apt-get install -y git zstd
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - name: Clone repo
+        run: |
+          git clone https://github.com/ProjectMatrixx/android_frameworks_base.git source-code
+
+      - name: Compress repo
+        run: |
+          tar -I 'zstd -19 -T0' -cf source-code.tar.zst source-code
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
         with:
-          path: ./downloaded-artifacts
-
-      - name: Generate Device List and Final Release Notes
-        id: generate-notes
-        run: |
-          echo "=== Start building the release notes ==="
-          cat << EOF > release_notes.md
-          This release contains KernelSU Next and SUSFS v1.5.9
-          
-          Module: 
-          -> https://github.com/sidex15/ksu_module_susfs  
-          
-          Non-Official Managers:
-          -> https://github.com/KernelSU-Next/KernelSU-Next  
-          
-          ### Built Devices
-          
-          | Model | Kernel Version |
-          |-------|----------------|
-          EOF
-          
-          # Generate table rows
-          for file in $(find downloaded-artifacts -name "*.txt" -type f | sort); do
-            if [ -f "$file" ]; then
-              model=$(basename "$file" .txt)
-              version=$(cat "$file")
-              printf "| %-12s | %-16s |\n" "$model" "$version" >> release_notes.md
-            fi
-          done
-          
-          # Add features and finalize
-          cat << 'EOF' >> release_notes.md
-          
-          ### Features
-          - [+] KernelSU-Next
-          - [+] SUSFS v1.5.9
-          - [+] Wireguard Support
-          - [+] Maphide LineageOS Detections
-          - [+] Futile Maphide for jit-zygote-cache Detections
-          - [+] Magic Mount Support
-          - [+] Ptrace message leak fix for kernels < 5.16
-          - [+] Manual Hooks [scope_min_manual_hooks_v1.4]
-          - [+] CONFIG_TMPFS_XATTR Support [Mountify Support]
-          - [+] BBR v1 Support
-          - [+] HMBIRD scx support for OnePlus 13 & OnePlus Ace 5 Pro
-          EOF
-          
-          # Output for debugging
-          echo "--- Final Release Notes ---"
-          cat release_notes.md
-
-      - name: Create GitHub Release
-        run: |
-          gh release create "${{ env.NEW_TAG }}" \
-            --repo "${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}" \
-            --title "${{ env.RELEASE_NAME }}" \
-            --notes-file release_notes.md \
-            --prerelease
-
-      - name: Upload Release Assets Dynamically
-        run: |
-          for file in ./downloaded-artifacts/*/*.zip; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file..."
-              gh release upload "${{ env.NEW_TAG }}" "$file" --clobber
-            fi
-          done
+          name: android_frameworks_base
+          path: source-code.tar.zst
